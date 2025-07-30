@@ -76,4 +76,3 @@ public class MpesaConfig {
     @Value("${mpesa.callback-url}")
     private String callbackUrl;
 }
-
