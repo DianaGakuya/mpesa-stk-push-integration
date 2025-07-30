@@ -45,14 +45,16 @@ server.port=8090
 
 # Safaricom M-Pesa API configuration
 mpesa.base-url=https://sandbox.safaricom.co.ke
-mpesa.consumer-key=81tQzJIaR9saUsq4Eu9eu6Dnko9UXHvC1titNFb5slpStVGb
-mpesa.consumer-secret=hkucAbkk0ENhM2XbK45PZQ9Qji1UJSVcacJNdsqIjCHm4qHUAzyAJUQJTGf6SvyA
+mpesa.consumer-key=YOUR_CONSUMER_KEY_HERE
+mpesa.consumer-secret=YOUR_CONSUMER_SECRET_HERE
 mpesa.shortcode=174379
-mpesa.passkey=bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919
-mpesa.callback-url=https://mydomain.com/pat
+mpesa.passkey=YOUR_PASSKEY_HERE
+mpesa.callback-url=https://your-domain.com/api/mpesa/callback
 ```
 
-⚠️ **Important**: These are current sandbox credentials (July 2025). Replace with your own fresh credentials if needed.
+⚠️ **IMPORTANT**: Replace the placeholder values with your actual Safaricom credentials from https://developer.safaricom.co.ke
+
+🔒 **NEVER commit real credentials to version control** - Always use placeholders in public repositories.
 
 ### 3. Run the Application
 
@@ -133,6 +135,195 @@ src/main/java/com/mpesa/
 └── service/
     └── MpesaService.java       # Business logic & OAuth handling
 ```
+
+## Safaricom Developer Portal Setup
+
+### Step 1: Create Safaricom Developer Account
+
+1. **Visit Safaricom Developer Portal**
+   - Go to https://developer.safaricom.co.ke/
+   - Click **"Get Started"** or **"Sign Up"**
+
+2. **Complete Registration**
+   - Fill in your personal details (Name, Email, Phone)
+   - Use a valid Safaricom number (07XXXXXXXX or 254XXXXXXXXX)
+   - Verify your email and phone number
+   - Create a strong password
+
+3. **Account Verification**
+   - Check your email for verification link
+   - Verify your phone number via SMS
+   - Complete your profile information
+
+### Step 2: Create Sandbox Application
+
+1. **Login to Developer Portal**
+   - Navigate to https://developer.safaricom.co.ke/
+   - Login with your credentials
+
+2. **Create New App**
+   - Click **"CREATE_NEW APP"** button
+   - Fill in application details:
+     - **App Name**: `Mpesa-stk-demo` (or your preferred name)
+     - **Description**: Brief description of your M-Pesa integration project
+
+3. **Add API Products**
+   - Click **"Add API Products"** ✏️ button
+   - Select **"M-PESA EXPRESS Sandbox"** (STK Push)
+   - Optionally select **"M-Pesa Sandbox"** (for other M-Pesa APIs)
+   - Click **"Save"**
+
+### Step 3: Get Your Credentials
+
+1. **View Credentials**
+   - Click **"Credentials"** 👁️ button on your app
+   - You'll see:
+     - **Consumer Key**: Starts with random characters (e.g., `81tQzJIaR9saUsq4...`)
+     - **Consumer Secret**: Long string of characters
+     - **Shortcode**: Usually shows `N/A` (use `174379` for sandbox)
+
+2. **Copy Your Credentials**
+   ```
+   Consumer Key: [Copy this - starts with random letters/numbers]
+   Consumer Secret: [Copy this - long string]
+   Shortcode: 174379 (Standard sandbox shortcode)
+   Passkey: bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919
+   ```
+
+### Step 4: Important Sandbox Information
+
+#### **Sandbox Environment Details:**
+- **Base URL**: `https://sandbox.safaricom.co.ke`
+- **Test Shortcode**: `174379` (Use this for all sandbox testing)
+- **Test Passkey**: `bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919`
+- **Valid Test Numbers**: Any Safaricom number (254XXXXXXXXX format)
+
+#### **Key Differences: Sandbox vs Production**
+
+| Feature | Sandbox | Production |
+|---------|---------|------------|
+| Base URL | `https://sandbox.safaricom.co.ke` | `https://api.safaricom.co.ke` |
+| Shortcode | `174379` (fixed) | Your actual business shortcode |
+| Passkey | Standard test passkey | Your business passkey |
+| Phone Numbers | Any valid format | Real customer numbers |
+| Money | Virtual/Test money | Real money transactions |
+| Callback URLs | Can use localhost/ngrok | Must be HTTPS public URLs |
+
+### Step 5: Configure Your Application
+
+1. **Update application.properties**
+   ```properties
+   # Replace with your actual credentials from Step 3
+   mpesa.consumer-key=YOUR_CONSUMER_KEY_FROM_PORTAL
+   mpesa.consumer-secret=YOUR_CONSUMER_SECRET_FROM_PORTAL
+   mpesa.shortcode=174379
+   mpesa.passkey=bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919
+   ```
+
+2. **Test Phone Number Format**
+   - Use format: `254XXXXXXXXX` (Kenya country code + 9 digits)
+   - Example: `254796022656`
+   - ❌ Don't use: `0796022656` or `+254796022656`
+
+### Step 6: Testing Your Setup
+
+1. **Start Your Application**
+   ```bash
+   ./mvnw spring-boot:run
+   ```
+
+2. **Test STK Push in Postman**
+   ```json
+   POST http://localhost:8090/api/mpesa/stkpush
+   {
+       "phone": "254796022656",
+       "amount": 1
+   }
+   ```
+
+3. **Expected Success Response**
+   ```json
+   {
+       "MerchantRequestID": "29115-34620561-1",
+       "CheckoutRequestID": "ws_CO_191220191020363925",
+       "ResponseCode": "0",
+       "ResponseDescription": "Success. Request accepted for processing"
+   }
+   ```
+
+### Step 7: Common Sandbox Issues & Solutions
+
+#### **1. Credentials Expired Error**
+```json
+{"error":"CREDENTIALS EXPIRED! Get new sandbox credentials"}
+```
+**Solution**: 
+- Go back to developer portal
+- Delete old app and create new one
+- Get fresh Consumer Key/Secret
+
+#### **2. Invalid BusinessShortCode**
+```json
+{"errorCode": "400.002.02", "errorMessage": "Bad Request - Invalid BusinessShortCode"}
+```
+**Solution**: 
+- Always use `174379` for sandbox
+- Ensure `@JsonProperty("BusinessShortCode")` annotation is correct
+
+#### **3. Invalid Access Token**
+```json
+{"errorCode": "404.001.03", "errorMessage": "Invalid Access Token"}
+```
+**Solution**: 
+- Check Consumer Key/Secret are correct
+- Verify they're properly set in application.properties
+- Ensure no extra spaces in credentials
+
+### Step 8: Callback URL Setup (Optional)
+
+For production or advanced testing, you'll need a public callback URL:
+
+1. **Using ngrok (for testing)**
+   ```bash
+   # Install ngrok and run
+   ngrok http 8090
+   
+   # Use the HTTPS URL provided
+   # Example: https://abc123.ngrok.io/api/mpesa/callback
+   ```
+
+2. **Update callback URL**
+   ```properties
+   mpesa.callback-url=https://abc123.ngrok.io/api/mpesa/callback
+   ```
+
+### Step 9: Moving to Production
+
+When ready for production:
+
+1. **Get Production Credentials**
+   - Apply for M-Pesa business account
+   - Get real business shortcode and passkey
+   - Get production Consumer Key/Secret
+
+2. **Update Configuration**
+   ```properties
+   mpesa.base-url=https://api.safaricom.co.ke
+   mpesa.consumer-key=YOUR_PRODUCTION_CONSUMER_KEY
+   mpesa.consumer-secret=YOUR_PRODUCTION_CONSUMER_SECRET
+   mpesa.shortcode=YOUR_BUSINESS_SHORTCODE
+   mpesa.passkey=YOUR_BUSINESS_PASSKEY
+   mpesa.callback-url=https://yourdomain.com/api/mpesa/callback
+   ```
+
+3. **Important Production Considerations**
+   - Use HTTPS for all endpoints
+   - Implement proper callback validation
+   - Add proper error handling and logging
+   - Use environment variables for credentials
+   - Test thoroughly in sandbox first
+
+---
 
 ## How It Works
 
@@ -246,6 +437,3 @@ For issues and questions:
 4. Check application logs for detailed error information
 
 ---
-
-**Last Updated**: July 30, 2025  
-**Status**: ✅ Working with fresh sandbox credentials
