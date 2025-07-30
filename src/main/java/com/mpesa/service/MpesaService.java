@@ -16,123 +16,202 @@ import java.util.Base64;
 import java.util.Date;
 
 /**
- * M-Pesa Service Layer - The Heart of M-Pesa Integration
+ * M-Pesa Service Layer - Core Business Logic
  *
- * This service handles the complex process of communicating with Safaricom's API.
- * Two main operations: 1) Get authentication token, 2) Send STK Push request
+ * This service handles all M-Pesa business operations and API communications
+ * It acts as the bridge between your application and Safaricom's Daraja API
  *
- * Why this works: Follows Safaricom's exact authentication and request flow
+ * Key Responsibilities:
+ * - Authenticate with Safaricom API (OAuth2 access tokens)
+ * - Generate secure passwords for STK Push requests
+ * - Build and send STK Push requests to Safaricom
+ * - Handle API responses and error scenarios
+ * - Provide detailed logging for debugging and monitoring
+ *
+ * Architecture Pattern: Service Layer Pattern
+ * - Controller handles HTTP requests/responses
+ * - Service handles business logic and external API calls
+ * - Configuration provides settings and credentials
+ *
+ * @Service: Marks this as a Spring service component for dependency injection
  */
-@Service // Spring will manage this as a singleton bean
+@Service
 public class MpesaService {
 
-    private final MpesaConfig config; // Injected configuration containing all M-Pesa credentials
-    private final ObjectMapper objectMapper = new ObjectMapper(); // For JSON conversion
-    private final HttpClient httpClient = HttpClient.newHttpClient(); // For HTTP requests
+    // Configuration injection - Contains all M-Pesa settings and credentials
+    private final MpesaConfig config;
 
-    // Constructor injection - Spring automatically provides MpesaConfig
+    // JSON processing - Converts Java objects to/from JSON for API communication
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    // HTTP client - Handles all HTTP requests to Safaricom API
+    private final HttpClient httpClient = HttpClient.newHttpClient();
+
+    /**
+     * Constructor with dependency injection
+     * Spring automatically injects MpesaConfig when creating this service
+     *
+     * @param config Configuration containing M-Pesa credentials and settings
+     */
     public MpesaService(MpesaConfig config) {
         this.config = config;
     }
 
     /**
-     * Step 1: Authenticate with Safaricom to get access token
+     * Get OAuth2 Access Token from Safaricom
      *
-     * Why this is needed: Every M-Pesa API call requires a valid OAuth2 token
-     * How it works: Send consumer key + secret to get temporary access token
+     * Before making any M-Pesa API calls, you need a valid access token
+     * This method authenticates with Safaricom using your app credentials
      *
-     * @return Valid access token (expires in ~1 hour)
-     * @throws Exception If authentication fails (wrong credentials, network issues)
+     * Process:
+     * 1. Combine Consumer Key + Consumer Secret
+     * 2. Encode credentials in Base64 format
+     * 3. Send GET request to OAuth endpoint
+     * 4. Extract access token from response
+     *
+     * Token Validity: Usually 1 hour (3600 seconds)
+     *
+     * @return Valid access token string for API authentication
+     * @throws Exception If authentication fails or network issues occur
      */
     public String getAccessToken() throws Exception {
-        // Create Basic Auth credentials: "ConsumerKey:ConsumerSecret"
-        String credentials = config.getConsumerKey() + ":" + config.getConsumerSecret();
+        try {
+            System.out.println("DEBUG - Starting getAccessToken()");
 
-        // Encode in Base64 format (OAuth2 requirement)
-        String encodedCredentials = Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
+            // Step 1: Prepare credentials for Basic Authentication
+            // Format: "ConsumerKey:ConsumerSecret"
+            String credentials = config.getConsumerKey() + ":" + config.getConsumerSecret();
 
-        // Build OAuth request to Safaricom's token endpoint
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(config.getBaseUrl() + "/oauth/v1/generate?grant_type=client_credentials"))
-                .header("Authorization", "Basic " + encodedCredentials) // Standard OAuth2 Basic Auth
-                .GET()
-                .build();
+            // Step 2: Encode credentials in Base64 format (required by OAuth2)
+            String encodedCredentials = Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
+            System.out.println("DEBUG - Credentials encoded successfully");
 
-        // Send request and extract access_token from JSON response
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        return objectMapper.readTree(response.body()).get("access_token").asText();
+            // Step 3: Build OAuth endpoint URL
+            String url = config.getBaseUrl() + "/oauth/v1/generate?grant_type=client_credentials";
+            System.out.println("DEBUG - Attempting to connect to: " + url);
+
+            // Step 4: Create HTTP GET request with Basic Authentication
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Authorization", "Basic " + encodedCredentials)
+                    .GET()
+                    .build();
+            System.out.println("DEBUG - HTTP request created, sending...");
+
+            // Step 5: Send request and get response
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            System.out.println("DEBUG - Response received. Status: " + response.statusCode());
+            System.out.println("DEBUG - Response body: " + response.body());
+
+            // Step 6: Extract access token from JSON response
+            // Expected response: {"access_token":"aBcDeFg...", "expires_in":"3599"}
+            return objectMapper.readTree(response.body()).get("access_token").asText();
+
+        } catch (Exception e) {
+            System.err.println("ERROR in getAccessToken: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
     }
 
     /**
-     * Step 2: Send STK Push request to customer's phone
+     * Initiate STK Push (Lipa Na M-Pesa Online) Request
      *
-     * This is where the magic happens - customer gets payment prompt on their phone
+     * This is the main method that triggers mobile money payment requests
+     * It sends a payment prompt to the customer's phone for approval
      *
-     * Critical Steps:
-     * 1. Generate timestamp (for security)
-     * 2. Create secure password (proves you own the shortcode)
-     * 3. Build request with exact JSON structure Safaricom expects
-     * 4. Send to Safaricom with OAuth token
+     * Process Flow:
+     * 1. Generate timestamp for transaction tracking
+     * 2. Create secure password using shortcode + passkey + timestamp
+     * 3. Build STK Push request with all required fields
+     * 4. Get fresh access token for API authentication
+     * 5. Send STK Push request to Safaricom
+     * 6. Return response to caller
      *
-     * @param mapping Contains phone number and amount from your API client
-     * @return Safaricom's response (success = MerchantRequestID + CheckoutRequestID)
-     * @throws Exception If request fails (network, authentication, validation errors)
+     * Customer Experience:
+     * 1. Customer receives STK Push prompt on their phone
+     * 2. Customer enters M-Pesa PIN to authorize payment
+     * 3. Payment is processed and confirmation sent
+     * 4. Transaction result is sent to your callback URL
+     *
+     * @param mapping Contains customer phone number and payment amount
+     * @return JSON response from Safaricom (success/failure details)
      */
-    public String initiateStkPush(Mpesamapping mapping) throws Exception {
-        // Generate current timestamp - used for security and tracking
-        String timestamp = new SimpleDateFormat("yyyyMMddHHmmss").format(new Date());
+    public String initiateStkPush(Mpesamapping mapping) {
+        try {
+            System.out.println("DEBUG - Starting STK Push for phone: " + mapping.getPhone() + ", amount: " + mapping.getAmount());
 
-        /**
-         * Generate secure password - This is KEY to why the integration works!
-         * Format: Base64(ShortCode + Passkey + Timestamp)
-         *
-         * Example: Base64("174379" + "bfb279f9aa9b..." + "20250730143000")
-         * This proves to Safaricom that you have the correct passkey for your shortcode
-         */
-        String password = Base64.getEncoder().encodeToString(
-                (config.getShortCode() + config.getPasskey() + timestamp).getBytes(StandardCharsets.UTF_8)
-        );
+            // Step 1: Generate timestamp for this transaction
+            // Format: yyyyMMddHHmmss (e.g., "20250728143000")
+            String timestamp = new SimpleDateFormat("yyyyMMddHHmmss").format(new Date());
+            System.out.println("DEBUG - Generated timestamp: " + timestamp);
 
-        // Build the STK Push request with all required fields
-        StkPushRequest stkRequest = new StkPushRequest(
-                config.getShortCode(),           // Your business number (who receives money)
-                password,                        // Security password (proves you own the shortcode)
-                timestamp,                       // Current time (for security and tracking)
-                "CustomerPayBillOnline",         // Transaction type (STK Push to paybill)
-                String.valueOf(mapping.getAmount()), // Amount as String (Safaricom requirement)
-                mapping.getPhone(),              // Customer's phone (who pays)
-                config.getShortCode(),           // Your business number (who receives)
-                mapping.getPhone(),              // Phone to receive STK prompt (usually same as payer)
-                config.getCallbackUrl(),         // Where Safaricom sends results
-                "TestPayment",                   // Reference on customer's statement
-                "Payment for goods"              // Description on customer's statement
-        );
+            // Step 2: Generate secure password for STK Push authentication
+            // Formula: Base64(ShortCode + Passkey + Timestamp)
+            // This password proves you have the correct passkey for the shortcode
+            String password = Base64.getEncoder().encodeToString(
+                    (config.getShortCode() + config.getPasskey() + timestamp).getBytes(StandardCharsets.UTF_8)
+            );
+            System.out.println("DEBUG - Generated password successfully");
 
-        // Convert Java object to JSON (using @JsonProperty annotations for correct field names)
-        String jsonBody = objectMapper.writeValueAsString(stkRequest);
+            // Step 3: Build STK Push request with all required fields
+            StkPushRequest stkRequest = new StkPushRequest(
+                    config.getShortCode(),           // Business receiving the payment
+                    password,                        // Secure authentication password
+                    timestamp,                       // Transaction timestamp
+                    "CustomerPayBillOnline",         // Transaction type (STK Push)
+                    String.valueOf(mapping.getAmount()), // Convert amount to String (CRITICAL FIX)
+                    mapping.getPhone(),              // Customer's phone number (payer)
+                    config.getShortCode(),           // Business shortcode (payee)
+                    mapping.getPhone(),              // Phone number for STK Push prompt
+                    config.getCallbackUrl(),         // Where Safaricom sends results
+                    "TestPayment",                   // Reference on customer's statement
+                    "Payment for goods"              // Description on customer's statement
+            );
+            System.out.println("DEBUG - Created STK request object");
 
-        // Send STK Push request to Safaricom with OAuth authentication
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(config.getBaseUrl() + "/mpesa/stkpush/v1/processrequest"))
-                .header("Authorization", "Bearer " + getAccessToken()) // OAuth2 Bearer token
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
-                .build();
+            // Step 4: Convert request object to JSON format
+            String jsonBody = objectMapper.writeValueAsString(stkRequest);
+            System.out.println("DEBUG - JSON Body: " + jsonBody);
 
-        // Send request and return Safaricom's response
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        return response.body();
+            // CRITICAL DEBUG: Let's see exact values being sent
+            System.out.println("=== DEBUGGING STK PUSH REQUEST ===");
+            System.out.println("BusinessShortCode: " + config.getShortCode());
+            System.out.println("Consumer Key: " + config.getConsumerKey().substring(0, 10) + "...");
+            System.out.println("Passkey: " + config.getPasskey().substring(0, 10) + "...");
+            System.out.println("Generated Password: " + password.substring(0, 20) + "...");
+            System.out.println("Timestamp: " + timestamp);
+            System.out.println("==================================");
 
-        /**
-         * Expected Success Response:
-         * {
-         *   "MerchantRequestID": "29115-34620561-1",
-         *   "CheckoutRequestID": "ws_CO_191220191020363925",
-         *   "ResponseCode": "0",
-         *   "ResponseDescription": "Success. Request accepted for processing"
-         * }
-         *
-         * At this point, customer receives STK Push prompt on their phone!
-         */
+            // Step 5: Get fresh access token for API authentication
+            System.out.println("DEBUG - Getting access token...");
+            String accessToken = getAccessToken();
+            System.out.println("DEBUG - Access token obtained: " + accessToken.substring(0, 10) + "...");
+
+            // Step 6: Build HTTP POST request to STK Push endpoint
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(config.getBaseUrl() + "/mpesa/stkpush/v1/processrequest"))
+                    .header("Authorization", "Bearer " + accessToken)  // OAuth2 Bearer token
+                    .header("Content-Type", "application/json")        // JSON content type
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                    .build();
+            System.out.println("DEBUG - HTTP request created, sending to Safaricom...");
+
+            // Step 7: Send request and get response
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            System.out.println("DEBUG - Response status: " + response.statusCode());
+            System.out.println("DEBUG - Response body: " + response.body());
+
+            // Step 8: Return Safaricom's response to the caller
+            return response.body();
+
+        } catch (Exception e) {
+            // Error handling with detailed logging
+            System.err.println("ERROR in initiateStkPush: " + e.getMessage());
+            e.printStackTrace();
+
+            // Return error in JSON format for consistent API responses
+            return "{\"error\":\"" + e.getMessage() + "\",\"type\":\"" + e.getClass().getSimpleName() + "\"}";
+        }
     }
 }

@@ -1,0 +1,13 @@
+# M-Pesa STK Push Application Configuration Template
+# Copy this file to application.properties and fill in your actual credentials
+
+# Server configuration
+server.port=8090
+
+# Safaricom M-Pesa API configuration
+mpesa.base-url=https://sandbox.safaricom.co.ke
+mpesa.consumer-key=YOUR_CONSUMER_KEY_HERE
+mpesa.consumer-secret=YOUR_CONSUMER_SECRET_HERE
+mpesa.shortcode=174379
+mpesa.passkey=YOUR_PASSKEY_HERE
+mpesa.callback-url=https://your-domain.com/api/mpesa/callback
